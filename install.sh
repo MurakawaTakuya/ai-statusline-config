@@ -40,6 +40,11 @@ install_claude() {
     exit 1
   fi
 
+  if ! command -v ccusage >/dev/null 2>&1; then
+    printf 'Warning: ccusage not found. The "today" cost segment will be hidden.\n' >&2
+    printf '         Install it with: npm install -g ccusage\n' >&2
+  fi
+
   claude_dir="${target_home}/.claude"
   settings_file="${claude_dir}/settings.json"
   mkdir -p "$claude_dir"

@@ -16,11 +16,16 @@ Codex CLI と Claude Code の下部バー設定だけを同期するための個
 
 ```text
 Sonnet 5 (medium) FAST | 5h █████████░ 99% left 4h16m | week ...
-Context ░░░░░░░░░░ 5% used · 52.8k/1M | cache 61% warm · 46m left
-~/Documents/programming/LangTalk | main | wt:feature-x | clean
+Context ░░░░░░░░░░ 5% used · 52.8k/1M | cache 61% warm · 46m left | today $12.34 | session $0.56
+my-session | ~/Documents/programming/LangTalk | main | wt:feature-x | clean
 ```
 
 値が提供されない項目は自動的に省略されます。
+
+- `session $0.56`: Claude Code が渡す現在セッションの推定費用（`/clear` でリセット）
+- `today $12.34`: 全セッション合算の今日の推定費用。`ccusage` で `~/.claude/projects` のログを集計し、60秒キャッシュします。`ccusage` が無い場合は非表示になります
+
+どちらも定価換算の推定値で、サブスクリプションプランの実際の請求額とは一致しません。
 
 ### Codex CLI
 
@@ -35,12 +40,25 @@ Codex は任意スクリプトではなく、定義済みの項目を指定順�
 - `gh`
 - `python3`
 - `jq`（Claude Code のステータスラインで使用）
+- `ccusage`（任意。Claude Code の `today` 費用表示で使用）
 - Codex CLI / Claude Code
 
 Homebrew を使う場合、`jq` は次のコマンドで導入できます。
 
 ```bash
 brew install jq
+```
+
+`ccusage` は Node.js の npm でグローバルインストールします。
+
+```bash
+npm install -g ccusage
+```
+
+mise で Node.js を管理している場合は、シェル外（Claude Code からの起動）でも shim が解決できるように、グローバル既定バージョンを設定しておきます。
+
+```bash
+mise use -g node@lts
 ```
 
 ## 新しいPCへのインストール

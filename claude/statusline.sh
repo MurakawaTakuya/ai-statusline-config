@@ -27,7 +27,8 @@ if ! values=$(printf '%s' "$input" | jq -r '
     (if .prompt_cache.hit_ratio == null then null else (.prompt_cache.hit_ratio * 100 | floor) end),
     .prompt_cache.warm,
     .prompt_cache.expires_at,
-    .session_id
+    .session_id,
+    .cost.total_cost_usd
   ] | map(clean) | join("\u001f")
 '); then
   printf 'Claude status unavailable\n'
@@ -36,7 +37,7 @@ fi
 
 IFS=$'\x1f' read -r model effort thinking fast_mode five_pct five_reset week_pct \
   week_reset session_name cwd worktree_name context_pct total_input total_output \
-  context_size cache_hit_pct cache_warm cache_expires session_id <<< "$values"
+  context_size cache_hit_pct cache_warm cache_expires session_id session_cost <<< "$values"
 
 RESET=$'\033[0m'
 DIM=$'\033[2m'
@@ -161,6 +162,57 @@ limit_segment() {
   fi
 }
 
+format_usd() {
+  local value=$1
+  case "$value" in
+    ''|*[!0-9.]*) return 1 ;;
+  esac
+  LC_NUMERIC=C printf '$%.2f' "$value"
+}
+
+find_ccusage() {
+  local candidate
+  if command -v ccusage >/dev/null 2>&1; then
+    command -v ccusage
+    return 0
+  fi
+  for candidate in "$HOME/.local/share/mise/shims/ccusage" /opt/homebrew/bin/ccusage /usr/local/bin/ccusage; do
+    if [ -x "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+today_cost=""
+
+# Today's total across all sessions comes from ccusage (reads ~/.claude/projects/*.jsonl).
+# The result is cached for 60s and shared by every session, since the value is global.
+load_today_cost() {
+  local cache_dir cache_file cache_tmp cache_mtime now cost ccusage_bin
+
+  cache_dir=${TMPDIR:-/tmp}
+  cache_file="${cache_dir%/}/claude-statusline-today-cost"
+  now=$(date +%s)
+  cache_mtime=$(stat -f %m "$cache_file" 2>/dev/null || printf '0')
+
+  if [ ! -f "$cache_file" ] || [ $((now - cache_mtime)) -gt 60 ]; then
+    ccusage_bin=$(find_ccusage) || return
+    cost=$("$ccusage_bin" daily --json --since "$(date +%Y%m%d)" 2>/dev/null \
+      | jq -r '.daily[0].totalCost // empty' 2>/dev/null || true)
+    if [ -n "$cost" ]; then
+      cache_tmp="${cache_file}.tmp.$$"
+      printf '%s\n' "$cost" > "$cache_tmp"
+      mv "$cache_tmp" "$cache_file"
+    elif [ -f "$cache_file" ]; then
+      touch "$cache_file"
+    fi
+  fi
+
+  [ -f "$cache_file" ] && IFS= read -r today_cost < "$cache_file"
+}
+
 git_branch=""
 git_staged=0
 git_modified=0
@@ -218,7 +270,6 @@ model_segment="${CYAN}${model_label}${RESET}"
 append_segment "$model_segment"
 [ -n "$five_pct" ] && append_segment "$(limit_segment '5h' "$five_pct" "$five_reset")"
 [ -n "$week_pct" ] && append_segment "$(limit_segment 'week' "$week_pct" "$week_reset")"
-[ -n "$session_name" ] && append_segment "${MAGENTA}${session_name}${RESET}"
 
 printf '%s\n' "$line"
 line=""
@@ -250,9 +301,18 @@ if [ -n "$cache_hit_pct" ]; then
   append_segment "$cache_segment"
 fi
 
+load_today_cost
+if today_cost_fmt=$(format_usd "$today_cost"); then
+  append_segment "${YELLOW}today ${today_cost_fmt}${RESET}"
+fi
+if session_cost_fmt=$(format_usd "$session_cost"); then
+  append_segment "${YELLOW}session ${session_cost_fmt}${RESET}"
+fi
+
 printf '%s\n' "$line"
 line=""
 
+[ -n "$session_name" ] && append_segment "${MAGENTA}${session_name}${RESET}"
 if [ -n "$cwd" ]; then
   case "$cwd" in
     "$HOME") dir_label="~" ;;
