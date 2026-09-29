@@ -19,6 +19,7 @@ if ! values=$(printf '%s' "$input" | jq -r '
     .rate_limits.seven_day.resets_at,
     .session_name,
     .workspace.current_dir,
+    .workspace.project_dir,
     (.worktree.name // .workspace.git_worktree),
     .context_window.used_percentage,
     .context_window.total_input_tokens,
@@ -36,7 +37,7 @@ if ! values=$(printf '%s' "$input" | jq -r '
 fi
 
 IFS=$'\x1f' read -r model effort thinking fast_mode five_pct five_reset week_pct \
-  week_reset session_name cwd worktree_name context_pct total_input total_output \
+  week_reset session_name cwd project_dir worktree_name context_pct total_input total_output \
   context_size cache_hit_pct cache_warm cache_expires session_id session_cost <<< "$values"
 
 RESET=$'\033[0m'
@@ -232,6 +233,31 @@ load_today_cost() {
   [ -f "$cache_file" ] && IFS= read -r today_cost < "$cache_file"
 }
 
+autocompact_threshold() {
+  # The status line JSON has no auto-compact info, so resolve it like Claude Code:
+  # CLAUDE_CODE_AUTO_COMPACT_WINDOW env > autoCompactWindow in settings
+  # (project local > project > user), capped at the context window. Without either,
+  # 1M-window models compact at about 967K. A --autocompact launch flag is not visible here.
+  local size=$1 window="" f pct
+  window=$(to_int "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}")
+  if [ "$window" -eq 0 ]; then
+    for f in "$project_dir/.claude/settings.local.json" "$project_dir/.claude/settings.json" "$HOME/.claude/settings.json"; do
+      [ -n "$project_dir" ] || [ "$f" = "$HOME/.claude/settings.json" ] || continue
+      [ -f "$f" ] || continue
+      window=$(to_int "$(jq -r '.autoCompactWindow // empty' "$f" 2>/dev/null)")
+      [ "$window" -gt 0 ] && break
+    done
+  fi
+  if [ "$window" -eq 0 ]; then
+    [ "$size" -ge 1000000 ] && printf '967000'
+    return
+  fi
+  [ "$size" -gt 0 ] && [ "$window" -gt "$size" ] && window=$size
+  pct=$(to_int "${CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:-}")
+  [ "$pct" -gt 0 ] && [ "$pct" -lt 100 ] && window=$((window * pct / 100))
+  printf '%d' "$window"
+}
+
 git_branch=""
 git_staged=0
 git_modified=0
@@ -339,6 +365,10 @@ sync_rate_limits() {
 sync_rate_limits
 [ -n "$five_pct" ] && append_segment "$(limit_segment '5h' "$five_pct" "$five_reset" 18000)"
 [ -n "$week_pct" ] && append_segment "$(limit_segment 'week' "$week_pct" "$week_reset" 604800)"
+load_today_cost
+if today_cost_fmt=$(format_usd "$today_cost"); then
+  append_segment "${YELLOW}today ${today_cost_fmt}${RESET}"
+fi
 if session_cost_fmt=$(format_usd "$session_cost"); then
   append_segment "${YELLOW}session ${session_cost_fmt}${RESET}"
 fi
@@ -356,6 +386,10 @@ context_color=$(percent_color "$context_pct")
 context_segment="${context_color}Context $(bar "$context_pct") ${context_pct}% used${RESET}"
 if [ "$context_size" -gt 0 ]; then
   context_segment="${context_segment}${DIM} · $(format_tokens "$used_tokens")/$(format_tokens "$context_size")${RESET}"
+  compact_at=$(autocompact_threshold "$context_size")
+  if [ -n "$compact_at" ]; then
+    context_segment="${context_segment}${DIM} (compact $(format_tokens "$compact_at"))${RESET}"
+  fi
 fi
 append_segment "$context_segment"
 
@@ -373,10 +407,6 @@ if [ -n "$cache_hit_pct" ]; then
   append_segment "$cache_segment"
 fi
 
-load_today_cost
-if today_cost_fmt=$(format_usd "$today_cost"); then
-  append_segment "${YELLOW}today ${today_cost_fmt}${RESET}"
-fi
 
 printf '%s\n' "$line"
 line=""
