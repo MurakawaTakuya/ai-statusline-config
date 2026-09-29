@@ -41,6 +41,7 @@ IFS=$'\x1f' read -r model effort thinking fast_mode five_pct five_reset week_pct
 
 RESET=$'\033[0m'
 DIM=$'\033[2m'
+BOLD=$'\033[1m'
 CYAN=$'\033[36m'
 BLUE=$'\033[34m'
 GREEN=$'\033[32m'
@@ -75,24 +76,34 @@ format_tokens() {
 }
 
 bar() {
+  # bar <pct> [marker_pct color]
   local pct=$1
+  local marker_pct=${2:-}
+  local color=${3:-}
   local width=10
-  local filled empty output i
+  local filled output i marker_idx=-1
 
   pct=$(to_int "$pct")
   [ "$pct" -gt 100 ] && pct=100
   filled=$((pct * width / 100))
-  empty=$((width - filled))
+
+  if [ -n "$marker_pct" ]; then
+    marker_pct=$(to_int "$marker_pct")
+    [ "$marker_pct" -gt 100 ] && marker_pct=100
+    marker_idx=$(((marker_pct * width + 50) / 100))
+    [ "$marker_idx" -ge "$width" ] && marker_idx=$((width - 1))
+  fi
+
   output=""
   i=0
-
-  while [ "$i" -lt "$filled" ]; do
-    output="${output}█"
-    i=$((i + 1))
-  done
-  i=0
-  while [ "$i" -lt "$empty" ]; do
-    output="${output}░"
+  while [ "$i" -lt "$width" ]; do
+    if [ "$i" -eq "$marker_idx" ]; then
+      output="${output}${RESET}${BOLD}┃${RESET}${color}"
+    elif [ "$i" -lt "$filled" ]; then
+      output="${output}█"
+    else
+      output="${output}░"
+    fi
     i=$((i + 1))
   done
 
@@ -147,17 +158,25 @@ remaining_color() {
 
 limit_segment() {
   local label=$1
-  local used_pct reset_at now remaining_pct remaining_time color
+  local window=${4:-0}
+  local used_pct reset_at now remaining_pct remaining_time color pace_pct=""
   used_pct=$(to_int "$2")
   reset_at=$(to_int "$3")
   [ "$used_pct" -gt 100 ] && used_pct=100
   remaining_pct=$((100 - used_pct))
   color=$(remaining_color "$remaining_pct")
 
-  printf '%s%s %s %d%% left%s' "$color" "$label" "$(bar "$remaining_pct")" "$remaining_pct" "$RESET"
+  now=$(date +%s)
+  remaining_time=$((reset_at - now))
+  # Pace marker: where "left %" would sit if the window were used at a constant rate.
+  if [ "$reset_at" -gt 0 ] && [ "$window" -gt 0 ]; then
+    [ "$remaining_time" -lt 0 ] && remaining_time=0
+    pace_pct=$((remaining_time * 100 / window))
+  fi
+
+  printf '%s%s %s %d%% left%s' "$color" "$label" \
+    "$(bar "$remaining_pct" "$pace_pct" "$color")" "$remaining_pct" "$RESET"
   if [ "$reset_at" -gt 0 ]; then
-    now=$(date +%s)
-    remaining_time=$((reset_at - now))
     printf '%s %s%s' "$DIM" "$(human_duration "$remaining_time")" "$RESET"
   fi
 }
@@ -268,8 +287,61 @@ line=""
 model_segment="${CYAN}${model_label}${RESET}"
 [ "$fast_mode" = "true" ] && model_segment="${model_segment}${YELLOW} FAST${RESET}"
 append_segment "$model_segment"
-[ -n "$five_pct" ] && append_segment "$(limit_segment '5h' "$five_pct" "$five_reset")"
-[ -n "$week_pct" ] && append_segment "$(limit_segment 'week' "$week_pct" "$week_reset")"
+sync_rate_limits() {
+  # Share rate limits across sessions: an idle session only sees the values from
+  # its own last API response. Each session writes only its own values to its own
+  # file (no write races); readers take, per window, the max used % among entries
+  # in the newest unexpired window. Usage never decreases within a window, and
+  # resets_at within 10 min of the newest is treated as the same window (jitter).
+  local dir="$HOME/.claude/statusline-ratelimits"
+  local safe_session own tmp now merged
+
+  mkdir -p "$dir" 2>/dev/null || return
+  safe_session=$(printf '%s' "${session_id:-default}" | tr -cd '[:alnum:]_-')
+  [ -n "$safe_session" ] || safe_session=default
+  own="$dir/$safe_session"
+
+  if [ -n "$five_pct$week_pct" ]; then
+    tmp="$dir/.${safe_session}.tmp.$$"  # dotfile: skipped by the * glob below
+    {
+      if [ -n "$five_pct" ]; then printf '5h %s %s\n' "$(to_int "$five_reset")" "$(to_int "$five_pct")"; fi
+      if [ -n "$week_pct" ]; then printf 'week %s %s\n' "$(to_int "$week_reset")" "$(to_int "$week_pct")"; fi
+    } > "$tmp" && mv "$tmp" "$own" || rm -f "$tmp"
+  fi
+
+  # Drop files of sessions not updated for over a week.
+  find "$dir" -type f -mtime +8 -delete 2>/dev/null
+
+  now=$(date +%s)
+  merged=$(cat "$dir"/* 2>/dev/null | awk -v now="$now" '
+    $2 > now {
+      n[$1]++; r[$1, n[$1]] = $2; p[$1, n[$1]] = $3
+      if ($2 > maxr[$1]) maxr[$1] = $2
+    }
+    END {
+      for (w in n) {
+        best = -1
+        for (i = 1; i <= n[w]; i++)
+          if (r[w, i] >= maxr[w] - 600 && p[w, i] > best) best = p[w, i]
+        print w, maxr[w], best
+      }
+    }')
+
+  local name reset pct
+  while read -r name reset pct; do
+    case "$name" in
+      5h) five_reset=$reset; five_pct=$pct ;;
+      week) week_reset=$reset; week_pct=$pct ;;
+    esac
+  done <<< "$merged"
+}
+
+sync_rate_limits
+[ -n "$five_pct" ] && append_segment "$(limit_segment '5h' "$five_pct" "$five_reset" 18000)"
+[ -n "$week_pct" ] && append_segment "$(limit_segment 'week' "$week_pct" "$week_reset" 604800)"
+if session_cost_fmt=$(format_usd "$session_cost"); then
+  append_segment "${YELLOW}session ${session_cost_fmt}${RESET}"
+fi
 
 printf '%s\n' "$line"
 line=""
@@ -304,9 +376,6 @@ fi
 load_today_cost
 if today_cost_fmt=$(format_usd "$today_cost"); then
   append_segment "${YELLOW}today ${today_cost_fmt}${RESET}"
-fi
-if session_cost_fmt=$(format_usd "$session_cost"); then
-  append_segment "${YELLOW}session ${session_cost_fmt}${RESET}"
 fi
 
 printf '%s\n' "$line"
