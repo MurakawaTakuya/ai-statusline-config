@@ -30,6 +30,18 @@ my-session | ~/Documents/programming/LangTalk | main | wt:feature-x | clean
 
 どちらも定価換算の推定値で、サブスクリプションプランの実際の請求額とは一致しません。
 
+`settings-snippet.json` の `refreshInterval: 60` により、操作していなくても60秒ごとに再描画されます。
+
+- リセットまでの残り時間とペースの `┃` は、実行時刻から計算するため60秒ごとに進みます
+- 5h / week の使用率は、どこかのセッションが API リクエストを送ったときだけ更新されます（他のセッションの値は上記の共有で最大60秒後に反映）
+
+実行時にリポジトリ外へ作るファイル（削除しても次回実行時に作り直されます）：
+
+- `~/.claude/statusline-ratelimits/`: 5h / week の値のセッション間共有
+- `~/.claude/statusline-ccusage-path`: `install.sh` が記録した `ccusage` の場所
+- `$TMPDIR/claude-statusline-git-<session_id>`: git 状態の5秒キャッシュ
+- `$TMPDIR/claude-statusline-today-cost`: `today` の60秒キャッシュ
+
 ### Codex CLI
 
 - `codex/statusline-snippet.toml`: `~/.codex/config.toml` の `[tui]` 下部バー設定だけ
@@ -58,7 +70,7 @@ brew install jq
 npm install -g ccusage
 ```
 
-nvm でインストールした `ccusage`（`~/.nvm/versions/node/*/bin`）も、PATH に無くても自動で見つけます。
+ステータスラインは Claude Code から起動されるため、シェルの PATH（nvm など）を引き継がないことがあります。`install.sh` は実行時に見つけた `ccusage` の場所を `~/.claude/statusline-ccusage-path` に記録し、ステータスラインはまずそれを使います。`ccusage` を後から入れた・入れ直した場合は `./install.sh claude` を再実行してください（nvm の `~/.nvm/versions/node/*/bin` は記録がなくても探します）。
 
 mise で Node.js を管理している場合は、シェル外（Claude Code からの起動）でも shim が解決できるように、グローバル既定バージョンを設定しておきます。
 

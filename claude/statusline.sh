@@ -192,6 +192,14 @@ format_usd() {
 
 find_ccusage() {
   local candidate
+  # Path recorded by install.sh from the user's interactive shell.
+  if [ -f "$HOME/.claude/statusline-ccusage-path" ]; then
+    IFS= read -r candidate < "$HOME/.claude/statusline-ccusage-path"
+    if [ -x "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  fi
   if command -v ccusage >/dev/null 2>&1; then
     command -v ccusage
     return 0

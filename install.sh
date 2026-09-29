@@ -40,14 +40,19 @@ install_claude() {
     exit 1
   fi
 
-  if ! command -v ccusage >/dev/null 2>&1; then
-    printf 'Warning: ccusage not found. The "today" cost segment will be hidden.\n' >&2
-    printf '         Install it with: npm install -g ccusage\n' >&2
-  fi
-
   claude_dir="${target_home}/.claude"
   settings_file="${claude_dir}/settings.json"
   mkdir -p "$claude_dir"
+
+  # The status line may not inherit this shell's PATH (nvm, volta, ...), so record
+  # where ccusage lives now; statusline.sh tries this path first.
+  if ccusage_path=$(command -v ccusage 2>/dev/null); then
+    printf '%s\n' "$ccusage_path" > "${claude_dir}/statusline-ccusage-path"
+    printf 'ccusage: %s\n' "$ccusage_path"
+  else
+    printf 'Warning: ccusage not found. The "today" cost segment will be hidden.\n' >&2
+    printf '         Install it with: npm install -g ccusage, then re-run this installer.\n' >&2
+  fi
 
   backup_file "${claude_dir}/statusline.sh"
   backup_file "${claude_dir}/subagent-statusline.sh"
