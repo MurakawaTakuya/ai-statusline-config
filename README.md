@@ -26,7 +26,7 @@ my-session | ~/Documents/programming/LangTalk | main | wt:feature-x | clean
 - `(compact 600k)`: auto-compact が走るトークン数。Context バーの `┃` もこの位置です。Claude Code は JSON で渡さないため、`CLAUDE_CODE_AUTO_COMPACT_WINDOW` → 各 `settings.json` の `autoCompactWindow`（プロジェクト local → プロジェクト → ユーザー）の順に読み、未設定なら 1M モデルの既定の約 967k を表示します。起動時の `--autocompact` フラグは反映できません
 - 5h / week の値はセッション間で共有します。Claude Code は各セッションに自分の最後の API レスポンス時点の値しか渡さないため、各セッションが自分の値を `~/.claude/statusline-ratelimits/<session_id>` に書き、表示時は最新の窓の中の最大使用率を使います（窓内で使用率は減らないため）。8日以上更新のないファイルは自動削除します
 - `session $0.56`: Claude Code が渡す現在セッションの推定費用（`/clear` でリセット）
-- `today $12.34`: 全セッション合算の今日の推定費用。`ccusage` で `~/.claude/projects` のログを集計し、60秒キャッシュします。`ccusage` が無い場合は非表示になります
+- `today $12.34`: Claude Code の全セッション合算の今日の推定費用。`ccusage claude daily` で `~/.claude/projects` のログを集計し、60秒キャッシュします（ccusage 20 以降の `daily` は Codex など他のエージェントも合算するため `claude` を指定）。`ccusage` が無い場合は非表示になります
 
 どちらも定価換算の推定値で、サブスクリプションプランの実際の請求額とは一致しません。
 
@@ -57,6 +57,8 @@ brew install jq
 ```bash
 npm install -g ccusage
 ```
+
+nvm でインストールした `ccusage`（`~/.nvm/versions/node/*/bin`）も、PATH に無くても自動で見つけます。
 
 mise で Node.js を管理している場合は、シェル外（Claude Code からの起動）でも shim が解決できるように、グローバル既定バージョンを設定しておきます。
 

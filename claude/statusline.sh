@@ -196,7 +196,9 @@ find_ccusage() {
     command -v ccusage
     return 0
   fi
-  for candidate in "$HOME/.local/share/mise/shims/ccusage" /opt/homebrew/bin/ccusage /usr/local/bin/ccusage; do
+  # Status line commands may not inherit an nvm-initialized PATH, so also check nvm installs.
+  for candidate in "$HOME/.local/share/mise/shims/ccusage" /opt/homebrew/bin/ccusage /usr/local/bin/ccusage \
+    "$HOME"/.nvm/versions/node/*/bin/ccusage; do
     if [ -x "$candidate" ]; then
       printf '%s' "$candidate"
       return 0
@@ -219,7 +221,9 @@ load_today_cost() {
 
   if [ ! -f "$cache_file" ] || [ $((now - cache_mtime)) -gt 60 ]; then
     ccusage_bin=$(find_ccusage) || return
-    cost=$("$ccusage_bin" daily --json --since "$(date +%Y%m%d)" 2>/dev/null \
+    # `claude daily`: ccusage 20+ merges Codex and other agents into plain `daily`.
+    # Prepend its dir so the `#!/usr/bin/env node` shebang finds the matching node.
+    cost=$(PATH="$(dirname "$ccusage_bin"):$PATH" "$ccusage_bin" claude daily --json --since "$(date +%Y%m%d)" 2>/dev/null \
       | jq -r '.daily[0].totalCost // empty' 2>/dev/null || true)
     if [ -n "$cost" ]; then
       cache_tmp="${cache_file}.tmp.$$"
