@@ -383,10 +383,17 @@ context_size=$(to_int "$context_size")
 used_tokens=$((total_input + total_output))
 context_color=$(percent_color "$context_pct")
 
-context_segment="${context_color}Context $(bar "$context_pct") ${context_pct}% used${RESET}"
+compact_at=""
+compact_pct=""
+if [ "$context_size" -gt 0 ]; then
+  compact_at=$(autocompact_threshold "$context_size")
+  [ -n "$compact_at" ] && compact_pct=$((compact_at * 100 / context_size))
+fi
+
+# The marker (┃) sits where auto-compact kicks in.
+context_segment="${context_color}Context $(bar "$context_pct" "$compact_pct" "$context_color") ${context_pct}% used${RESET}"
 if [ "$context_size" -gt 0 ]; then
   context_segment="${context_segment}${DIM} · $(format_tokens "$used_tokens")/$(format_tokens "$context_size")${RESET}"
-  compact_at=$(autocompact_threshold "$context_size")
   if [ -n "$compact_at" ]; then
     context_segment="${context_segment}${DIM} (compact $(format_tokens "$compact_at"))${RESET}"
   fi
