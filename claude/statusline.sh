@@ -225,7 +225,7 @@ load_today_cost() {
   cache_dir=${TMPDIR:-/tmp}
   cache_file="${cache_dir%/}/claude-statusline-today-cost"
   now=$(date +%s)
-  cache_mtime=$(stat -f %m "$cache_file" 2>/dev/null || printf '0')
+  cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || printf '0')
 
   if [ ! -f "$cache_file" ] || [ $((now - cache_mtime)) -gt 60 ]; then
     ccusage_bin=$(find_ccusage) || return
@@ -284,7 +284,7 @@ load_git_status() {
   cache_dir=${TMPDIR:-/tmp}
   cache_file="${cache_dir%/}/claude-statusline-git-${safe_session}"
   now=$(date +%s)
-  cache_mtime=$(stat -f %m "$cache_file" 2>/dev/null || printf '0')
+  cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null || printf '0')
 
   if [ ! -f "$cache_file" ] || [ $((now - cache_mtime)) -gt 5 ]; then
     git_branch=$(git -C "$cwd" branch --show-current 2>/dev/null || true)
